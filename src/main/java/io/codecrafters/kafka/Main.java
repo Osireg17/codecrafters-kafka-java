@@ -1,6 +1,10 @@
+package io.codecrafters.kafka;
+
 import java.io.IOException;
+import java.io.OutputStream;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.nio.ByteBuffer;
 
 public class Main {
   public static void main(String[] args){
@@ -17,6 +21,17 @@ public class Main {
       serverSocket.setReuseAddress(true);
       // Wait for connection from client.
       clientSocket = serverSocket.accept();
+
+      // Send the response: 8 bytes total
+      // 4 bytes for message_size (0)
+      // 4 bytes for correlation_id (7)
+      OutputStream out = clientSocket.getOutputStream();
+      ByteBuffer response = ByteBuffer.allocate(8);
+      response.putInt(0);  // message_size: 0
+      response.putInt(7);  // correlation_id: 7
+      out.write(response.array());
+      out.flush();
+
     } catch (IOException e) {
       System.out.println("IOException: " + e.getMessage());
     } finally {
