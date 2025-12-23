@@ -116,17 +116,25 @@ public class Main {
         } else {
             error_code = 0;  // Success
         }
+        // Construct ApiVersions response
+        int body_size = 2 + 1 + (2 + 2 + 2 + 1) + (2 + 2 + 2 + 1) + 4 + 1;
 
-        int body_size = 2 + 1 + (2 + 2 + 2 + 1) + 4 + 1;
-        int message_size = 4 + body_size;
+        // body_size breakdown:
+        int message_size = 4 + body_size; // correlation_id (4 bytes) + body_size
         ByteBuffer responseBuffer = ByteBuffer.allocate(4 + message_size);
         responseBuffer.putInt(message_size);  // message_size
         responseBuffer.putInt(correlationId); // correlation_id
         responseBuffer.putShort(error_code);   // error_code
-        responseBuffer.put((byte) 2);         // api_keys length (compact array length = 1 + 1)
+        // 1. WRITE compact array length (2 entries => length+1 = 3).
+        responseBuffer.put((byte) 3);         // api_keys length (compact array length = 2 + 1)
         responseBuffer.putShort((short) api_key); // api_key
         responseBuffer.putShort(min_version);      // min_version
         responseBuffer.putShort(max_version);      // max_version
+        responseBuffer.put((byte) 0);         // tagged_fields (empty)
+        // 2. WRITE DescribeTopicPartitions entry (api_key=75, min=0, max=0, tagged_fields empty).
+        responseBuffer.putShort((short) 75);  // api_key (DescribeTopicPartitions)
+        responseBuffer.putShort((short) 0);   // min_version
+        responseBuffer.putShort((short) 0);   // max_version
         responseBuffer.put((byte) 0);         // tagged_fields (empty)
         responseBuffer.putInt(0);             // throttle_time_ms
         responseBuffer.put((byte) 0);         // tagged_fields (empty)  
