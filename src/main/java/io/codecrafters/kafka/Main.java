@@ -45,22 +45,35 @@ public class Main {
             logger.info("Parsed request - messageSize: {}, apiKey: {}, apiVersion: {}, correlationId: {}",
                     messageSize, apiKey, apiVersion, correlationId);
 
-            // Build and send the response
+            int api_key = 18;
+            short min_version = 0;
+            short max_version = 4;
+
+            // Determine error_code based on requested API version
+            short error_code;
+            if (apiVersion < min_version || apiVersion > max_version) {
+                error_code = 35; // UNSUPPORTED_VERSION
+            } else {
+                error_code = 0;  // Success
+            }
+
+            int body_size = 2 + 1 + (2 + 2 + 2 + 1) + 4 + 1;
+            int message_size = 4 + body_size;
+            ByteBuffer responseBuffer = ByteBuffer.allocate(4 + message_size);
+            responseBuffer.putInt(message_size);  // message_size
+            responseBuffer.putInt(correlationId); // correlation_id
+            responseBuffer.putShort(error_code);   // error_code
+            responseBuffer.put((byte) 2);         // api_keys length (compact array length = 1 + 1)
+            responseBuffer.putShort((short) api_key); // api_key
+            responseBuffer.putShort(min_version);      // min_version
+            responseBuffer.putShort(max_version);      // max_version
+            responseBuffer.put((byte) 0);         // tagged_fields (empty)
+            responseBuffer.putInt(0);             // throttle_time_ms
+            responseBuffer.put((byte) 0);         // tagged_fields (empty)  
+            logger.info("Sending ApiVersions response with correlationId: {}", correlationId);
+
             OutputStream out = clientSocket.getOutputStream();
-
-            // Error response for unsupported API version
-            short errorCode = 35; // UNSUPPORTED_VERSION
-
-            // Response: message_size (4 bytes) + correlation_id (4 bytes) + error_code (2 bytes)
-            ByteBuffer response = ByteBuffer.allocate(10);
-
-            response.putInt(6);  // message_size: 6 bytes (correlation_id + error_code)
-            response.putInt(correlationId);  // correlation_id (echoed back from request)
-            response.putShort(errorCode); // error_code as short (2 bytes)
-
-            logger.info("Sending error response with correlationId: {}, errorCode: {}", correlationId, errorCode);
-
-            out.write(response.array());
+            out.write(responseBuffer.array());
             out.flush();
 
         } catch (IOException e) {
