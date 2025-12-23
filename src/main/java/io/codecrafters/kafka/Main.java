@@ -105,6 +105,26 @@ public class Main {
         logger.info("Parsed request - messageSize: {}, apiKey: {}, apiVersion: {}, correlationId: {}",
                 messageSize, apiKey, apiVersion, correlationId);
 
+        // === BEHAVIOR: Route By apiKey ===
+        // 1. IF apiKey equals ApiVersions THEN build ApiVersions response.
+        // 2. ELSE IF apiKey equals DescribeTopicPartitions THEN parse request body and build that response.
+        // 3. ELSE return an appropriate error or ignore (future stages).
+        switch (apiKey) {
+            case 18 -> {
+                // ApiVersions request
+                buildApiVersionsResponse(correlationId, apiVersion, out);
+            }
+            case 75 -> {
+                // DescribeTopicPartitions request
+                String topicName = parseDescribeTopicPartitionsRequest(request);
+                buildDescribeTopicPartitionsResponse(correlationId, topicName, out);
+            }
+            default ->
+                logger.warn("Unsupported apiKey: {}", apiKey);
+        }
+    }
+
+    private static void buildApiVersionsResponse(int correlationId, short apiVersion, OutputStream out) throws IOException {
         int api_key = 18;
         short min_version = 0;
         short max_version = 4;
@@ -116,9 +136,9 @@ public class Main {
         } else {
             error_code = 0;  // Success
         }
+
         // Construct ApiVersions response
         int body_size = 2 + 1 + (2 + 2 + 2 + 1) + (2 + 2 + 2 + 1) + 4 + 1;
-
         // body_size breakdown:
         int message_size = 4 + body_size; // correlation_id (4 bytes) + body_size
         ByteBuffer responseBuffer = ByteBuffer.allocate(4 + message_size);
@@ -137,18 +157,119 @@ public class Main {
         responseBuffer.putShort((short) 0);   // max_version
         responseBuffer.put((byte) 0);         // tagged_fields (empty)
         responseBuffer.putInt(0);             // throttle_time_ms
-        responseBuffer.put((byte) 0);         // tagged_fields (empty)  
+        responseBuffer.put((byte) 0);         // tagged_fields (empty)
+
         logger.info("Sending ApiVersions response with correlationId: {}", correlationId);
+        out.write(responseBuffer.array());
+        out.flush();
+    }
+
+    private static String parseDescribeTopicPartitionsRequest(ByteBuffer requestBuffer) {
+
+        logger.info("Starting to parse DescribeTopicPartitions request. Buffer position: {}, remaining: {}",
+            requestBuffer.position(), requestBuffer.remaining());
+
+        // Skip client_id (nullable string - INT16 length prefix)
+        short clientIdLength = requestBuffer.getShort();
+        logger.info("Client ID length (INT16): {}", clientIdLength);
+
+        if (clientIdLength > 0) {
+            requestBuffer.position(requestBuffer.position() + clientIdLength);
+            logger.info("Skipped {} bytes for client_id. New position: {}", clientIdLength, requestBuffer.position());
+        }
+
+        // Skip header TAG_BUFFER (expect empty)
+        byte headerTagBuffer = requestBuffer.get();
+        logger.info("Header TAG_BUFFER: 0x{}, position: {}",
+            String.format("%02X", headerTagBuffer), requestBuffer.position());
+
+        // Now read topics array
+        byte topicsArrayLengthByte = requestBuffer.get();
+        int topicsArrayLength = Byte.toUnsignedInt(topicsArrayLengthByte);
+        logger.info("Topics array length byte: 0x{}, computed length: {}, position: {}",
+            String.format("%02X", topicsArrayLengthByte), topicsArrayLength, requestBuffer.position());
+
+        if (topicsArrayLength <= 1) {
+            logger.warn("Topics array length is <= 1, returning empty string");
+            return ""; // No topics
+        }
+
+        // Read topic_name
+        byte topicNameLengthByte = requestBuffer.get();
+        int topicNameLength = Byte.toUnsignedInt(topicNameLengthByte) - 1;
+        logger.info("Topic name length byte: 0x{}, computed length: {}, position: {}",
+            String.format("%02X", topicNameLengthByte), topicNameLength, requestBuffer.position());
+
+        byte[] topicNameBytes = new byte[topicNameLength];
+        requestBuffer.get(topicNameBytes);
+        String topicName = new String(topicNameBytes, java.nio.charset.StandardCharsets.UTF_8);
+        logger.info("Extracted topic name: '{}', position: {}", topicName, requestBuffer.position());
+
+        // Skip topic TAG_BUFFER (expect empty)
+        byte topicTagBuffer = requestBuffer.get();
+        logger.info("Topic TAG_BUFFER: 0x{}, position: {}",
+            String.format("%02X", topicTagBuffer), requestBuffer.position());
+
+        // Skip ResponsePartitionLimit (INT32, 4 bytes)
+        int responsePartitionLimit = requestBuffer.getInt();
+        logger.info("ResponsePartitionLimit: {}, position: {}", responsePartitionLimit, requestBuffer.position());
+
+        // Skip Cursor (nullable byte)
+        byte cursor = requestBuffer.get();
+        logger.info("Cursor: 0x{} ({}), position: {}",
+            String.format("%02X", cursor), cursor, requestBuffer.position());
+
+        // Skip request TAG_BUFFER (expect empty)
+        byte requestTagBuffer = requestBuffer.get();
+        logger.info("Request TAG_BUFFER: 0x{}, position: {}",
+            String.format("%02X", requestTagBuffer), requestBuffer.position());
+
+        logger.info("Finished parsing. Returning topic name: '{}'", topicName);
+        return topicName;
+
+    }
+
+    private static void buildDescribeTopicPartitionsResponse(int correlationId, String topicName, OutputStream out) throws IOException {
+
+        short error_code = 3; // UNKNOWN_TOPIC_OR_PARTITION
+        byte[] topicNameBytes = topicName.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        int topicNameByteLength = topicNameBytes.length;
+
+        // Header v1: correlation_id (4) + TAG_BUFFER (1) = 5 bytes
+        // Body: throttle_time_ms (4) + topics array (1 + topic_entry) + next_cursor (1) + TAG_BUFFER (1)
+        // Topic entry: error_code (2) + topic_name (1 + length) + topic_id (16) + is_internal (1) + partitions (1) + authorized_ops (4) + TAG_BUFFER (1)
+        int body_size = 4 + 1 + (2 + topicNameByteLength + 1 + 16 + 1 + 1 + 4 + 1) + 1 + 1;
+        int message_size = 4 + 1 + body_size; // correlation_id (4) + header TAG_BUFFER (1) + body_size
+
+        ByteBuffer responseBuffer = ByteBuffer.allocate(4 + message_size);
+        responseBuffer.putInt(message_size);  // message_size
+        responseBuffer.putInt(correlationId); // correlation_id
+        responseBuffer.put((byte) 0);         // header TAG_BUFFER (empty)
+        responseBuffer.putInt(0);             // throttle_time_ms
+        responseBuffer.put((byte) 2);         // topics length (compact array length = 1 + 1)
+
+        // Topic entry
+        responseBuffer.putShort(error_code);   // error_code
+        responseBuffer.put((byte) (topicNameByteLength + 1)); // topic_name length (compact string length = byte_length + 1)
+        responseBuffer.put(topicNameBytes); // topic_name
+        // topic_id = all zero UUID
+        for (int i = 0; i < 16; i++) {
+            responseBuffer.put((byte) 0);
+        }
+        responseBuffer.put((byte) 0);         // is_internal = false
+        responseBuffer.put((byte) 1);         // partitions length (compact array length = 0 + 1)
+        responseBuffer.putInt(0);             // topic_authorized_operations
+        responseBuffer.put((byte) 0);         // topic TAG_BUFFER empty
+
+        responseBuffer.put((byte) -1);        // next_cursor = -1 (null, NULLABLE_INT8 = 1 byte)
+        responseBuffer.put((byte) 0);         // response TAG_BUFFER empty
+
+        logger.info("Sending DescribeTopicPartitions response for topic: {} with correlationId: {}", topicName, correlationId);
 
         out.write(responseBuffer.array());
         out.flush();
     }
 
-    /**
-     * Reads exactly the specified number of bytes from the input stream.
-     *
-     * @return true if all bytes were read, false if EOF or incomplete read
-     */
     private static boolean readFully(InputStream in, byte[] buffer, int offset, int length) throws IOException {
         int totalRead = 0;
         while (totalRead < length) {
