@@ -23,42 +23,29 @@ public class Main {
             serverSocket = new ServerSocket(port);
 
             serverSocket.setReuseAddress(true);
-            clientSocket = serverSocket.accept();
-            InputStream in = clientSocket.getInputStream();
+            logger.info("Kafka mock server listening on port {}", port);
+            while (true) {
+                clientSocket = serverSocket.accept();
+                logger.info("Accepted connection from {}", clientSocket.getRemoteSocketAddress());
+                Socket finalClientSocket = clientSocket;
+                new Thread(() -> handleClient(finalClientSocket)).start();
+            }
+        } catch (IOException e) {
+            logger.error("IOException in server: {}", e.getMessage(), e);
+        } finally {
+            try {
+                if (serverSocket != null) {
+                    serverSocket.close();
+                }
+            } catch (IOException e) {
+                logger.error("IOException while closing server socket: {}", e.getMessage(), e);
+            }
+        }
+    }
 
-            // Read the request from the client
-            // === CONTEXT ===
-            // Purpose: Handle multiple sequential requests on the same connection.
-            //
-            // === DATA / STATE ===
-            // inputStream: bytes from client_socket (per-connection)
-            // outputStream: bytes to client_socket (per-connection)
-            // running: controls request-processing loop
-            //
-            // === BEHAVIOR: Read framed requests and respond ===
-            // Input
-            // - stream of Kafka requests (each framed by 4-byte message_size)
-            // Output
-            // - ApiVersions responses written to outputStream
-            // Preconditions
-            // - client_socket is connected
-            // Postconditions
-            // - responses sent for each complete request until client disconnects
-            // Logic Flow
-            // 1. INITIALIZE inputStream and outputStream from client_socket.
-            // 2. SET running to true.
-            // 3. WHILE running:
-            //    a. READ exactly 4 bytes for message_size.
-            //    b. IF no bytes read THEN SET running to false and EXIT loop.
-            //    c. IF fewer than 4 bytes read THEN EXIT loop (incomplete frame).
-            //    d. PARSE message_size as INT32.
-            //    e. READ exactly message_size bytes for the remainder of the request.
-            //    f. IF read fails or returns fewer bytes THEN EXIT loop.
-            //    g. PARSE request header fields from the bytes read.
-            //    h. DETERMINE error_code based on apiVersion range.
-            //    i. BUILD and WRITE ApiVersions response.
-            // 4. CLOSE client_socket.
-            //INITIALIZE inputStream and outputStream from client_socket.
+    private static void handleClient(Socket clientSocket) {
+        try {
+            InputStream in = clientSocket.getInputStream();
             OutputStream out = clientSocket.getOutputStream();
             boolean running = true;
 
