@@ -1,284 +1,395 @@
 package io.codecrafters.kafka;
+import io.codecrafters.kafka.common.ApiKeyEnum;
+import io.codecrafters.kafka.common.Topic;
 
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
+import java.math.BigInteger;
+import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.net.StandardSocketOptions;
 import java.nio.ByteBuffer;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import java.nio.MappedByteBuffer;
+import java.nio.channels.*;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.FileSystems;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+import java.util.*;
 
 public class Main {
 
-    private static final Logger logger = LoggerFactory.getLogger(Main.class);
-
     public static void main(String[] args) {
+        // You can use print statements as follows for debugging, they'll be visible
+        // when running tests.
+        System.err.println("Logs from your program will appear here!");
 
-        ServerSocket serverSocket = null;
+        /*String hex = "00000000000000000000004f0000000102b069457c00000000000000000191e05af81800000191e05af818ffffffffffffffffffffffffffff000000013a000000012e010c00116d657461646174612e76657273696f6e001400000000000000000001000000e4000000010224db12dd00000000000200000191e05b2d1500000191e05b2d15ffffffffffffffffffffffffffff000000033c00000001300102000473617a00000000000040008000000000000091000090010000020182010103010000000000000000000040008000000000000091020000000102000000010101000000010000000000000000021000000000004000800000000000000100009001000004018201010301000000010000000000004000800000000000009102000000010200000001010100000001000000000000000002100000000000400080000000000000010000";
+        File file = new File("d:\\application\\test.log");
+        try {
+            if(!(file.exists()) && file.createNewFile()) {
+                FileOutputStream stream = new FileOutputStream(file);
+                char[] arr1 = hex.toCharArray();
+                byte[] bytes = new byte[arr1.length / 2];
+                for(int i = 0; i < bytes.length; i++) {
+                    bytes[i] = (byte) new BigInteger(String.valueOf(arr1[i * 2]) + String.valueOf(arr1[ i * 2 + 1]), 16).intValue();
+                }
+                stream.write(bytes);
+                stream.close();
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }*/
+
+        // Uncomment this block to pass the first stage
+
+        /*ServerSocket serverSocket = null;
         Socket clientSocket = null;
         int port = 9092;
         try {
             serverSocket = new ServerSocket(port);
-
+            // Since the tester restarts your program quite often, setting SO_REUSEADDR
+            // ensures that we don't run into 'Address already in use' errors
             serverSocket.setReuseAddress(true);
-            logger.info("Kafka mock server listening on port {}", port);
-            while (true) {
-                clientSocket = serverSocket.accept();
-                logger.info("Accepted connection from {}", clientSocket.getRemoteSocketAddress());
-                Socket finalClientSocket = clientSocket;
-                new Thread(() -> handleClient(finalClientSocket)).start();
-            }
+            // Wait for connection from client.
+            clientSocket = serverSocket.accept();
         } catch (IOException e) {
-            logger.error("IOException in server: {}", e.getMessage(), e);
-        } finally {
-            try {
-                if (serverSocket != null) {
-                    serverSocket.close();
-                }
-            } catch (IOException e) {
-                logger.error("IOException while closing server socket: {}", e.getMessage(), e);
-            }
-        }
-    }
-
-    private static void handleClient(Socket clientSocket) {
-        try {
-            InputStream in = clientSocket.getInputStream();
-            OutputStream out = clientSocket.getOutputStream();
-            boolean running = true;
-
-            while (running) {
-
-                // READ exactly 4 bytes for message_size.
-                byte[] sizeBytes = new byte[4];
-                if (!readFully(in, sizeBytes, 0, 4)) {
-                    // IF no bytes read or incomplete THEN SET running to false and EXIT loop.
-                    running = false;
-                    break;
-                }
-
-                // PARSE message_size as INT32.
-                ByteBuffer sizeBuffer = ByteBuffer.wrap(sizeBytes);
-                int messageSize = sizeBuffer.getInt();
-
-                // Assemble full request: size (4 bytes) + body (messageSize bytes)
-                byte[] fullRequest = new byte[4 + messageSize];
-                System.arraycopy(sizeBytes, 0, fullRequest, 0, 4);
-
-                // READ exactly message_size bytes for the remainder of the request.
-                if (!readFully(in, fullRequest, 4, messageSize)) {
-                    // IF read fails or returns fewer bytes THEN EXIT loop.
-                    break;
-                }
-
-                handleRequest(fullRequest, out);
-            }
-
-        } catch (IOException e) {
-            logger.error("IOException: {}", e.getMessage(), e);
+            System.out.println("IOException: " + e.getMessage());
         } finally {
             try {
                 if (clientSocket != null) {
                     clientSocket.close();
                 }
             } catch (IOException e) {
-                logger.error("IOException while closing socket: {}", e.getMessage(), e);
+                System.out.println("IOException: " + e.getMessage());
+            }
+        }*/
+        //Map<String, Topic> topicMap = resolveTopicLog("d:\\application", "test.log");
+        //ByteBuffer buffer = ByteBuffer.wrap(new byte[]{Integer.valueOf(0x82).byteValue(), 0x01});
+        //ByteBuffer buffer = ByteBuffer.wrap(new byte[]{Integer.valueOf(0x3c).byteValue(), 0x00});
+        //resolveVarInt(buffer);
+        nio();
+    }
+    private static void nio() {
+        final int port = 9092;
+        try{
+            ServerSocketChannel server = ServerSocketChannel.open()
+                    .setOption(StandardSocketOptions.SO_REUSEADDR, true)
+                    //.setOption(StandardSocketOptions.SO_REUSEPORT, true)
+                    .setOption(StandardSocketOptions.SO_RCVBUF, 1024)
+                    .bind(new InetSocketAddress(port));
+            server.configureBlocking(false);
+            Selector selector = Selector.open();
+            server.register(selector, SelectionKey.OP_ACCEPT);
+            while(true) {
+                if(selector.select(500) > 0) {
+                    Iterator<SelectionKey> iterator = selector.selectedKeys().iterator();
+                    while(iterator.hasNext()) {
+                        SelectionKey selectionKey = iterator.next();
+                        switch (selectionKey.interestOps()) {
+                            case SelectionKey.OP_ACCEPT: {
+                                SocketChannel clientChannel = ((ServerSocketChannel)selectionKey.channel()).accept();
+                                clientChannel.configureBlocking(false);
+                                clientChannel.register(selector, SelectionKey.OP_READ);
+                            } break;
+                            case SelectionKey.OP_READ: {
+                                SocketChannel channel = (SocketChannel) selectionKey.channel();
+                                if(channel.isConnected()) {
+                                    ByteBuffer buffer = ByteBuffer.allocate(2048);
+                                    buffer.clear();
+                                    int len = channel.read(buffer);
+                                    if(len > 0) {
+                                        final List<Byte> data = new ArrayList<>();
+                                        //message length
+                                        fillBytes(data, (byte) 0, 4);
+                                        //correlationId
+                                        fillBytes(data, buffer, 8, 4);
+
+                                        byte[] apiKey = new byte[2];
+                                        //apiKey
+                                        buffer.position(4);
+                                        buffer.get(apiKey, 0, 2);
+                                        BigInteger apiKeyNo = new BigInteger(apiKey);
+                                        switch (apiKeyNo.intValue()) {
+                                            case 18: {
+                                                //ApiVersions
+                                                buffer.position(6);
+                                                byte[] apiVers = new byte[2];
+                                                buffer.get(apiVers, 0, 2);
+                                                byte apiVersion = new BigInteger(apiVers).byteValue();
+                                                if(apiVersion < ApiKeyEnum.API_18.minVersion || apiVersion > ApiKeyEnum.API_18.maxVersion) {
+                                                    fillBytes(data, 35, 2);
+                                                }else {
+                                                    fillBytes(data, (byte) 0, 2);
+                                                }
+                                                fillBytes(data, ApiKeyEnum.values().length + 1, 1);
+                                                Arrays.stream(ApiKeyEnum.values()).forEach(api -> {
+                                                    fillBytes(data, api.key, 2);
+                                                    fillBytes(data, api.minVersion, 2);
+                                                    fillBytes(data, api.maxVersion, 2);
+                                                    //tag fields
+                                                    fillBytes(data, 0, 1);
+                                                });
+                                                if(apiVersion > 0) {
+                                                    fillBytes(data, (byte)0, 4);
+                                                    //fillBytes(data, 1, 4);
+                                                    //tag fields
+                                                    fillBytes(data, 0, 1);
+                                                }
+                                            } break;
+                                            case 75: {
+                                                //DescribeTopicPartitions
+                                                //0 noError; 3 error
+                                                int errorCode = 0;
+                                                String dataLogPath = "/tmp/kraft-combined-logs/__cluster_metadata-0";
+                                                String logFileName = "00000000000000000000.log";
+                                                Map<String, Topic> topicMap = resolveTopicLog(dataLogPath, logFileName);
+
+                                                System.out.println(topicMap);
+
+                                                buffer.position(12);
+                                                buffer.position(15 + buffer.getShort());
+                                                int arrayLen = buffer.get();
+                                                //tag buffer + throttle time  5 bytes
+                                                fillBytes(data, (byte) 0, 5);
+                                                //array length + 1  1 byte
+                                                fillBytes(data, arrayLen, 1);
+                                                //error code 3
+                                                //fillBytes(data, errorCode, 2);
+                                                for(int i = 0, length = arrayLen - 1; i < length; i++) {
+                                                    int topicNameLen = buffer.get();
+                                                    //topic name
+                                                    byte[] topicName = new byte[topicNameLen - 1];
+                                                    buffer.get(topicName, 0, topicName.length);
+                                                    Topic topic = topicMap.get(new String(topicName));
+                                                    //error code 0
+                                                    fillBytes(data, Objects.isNull(topic) ? 3 : 0, 2);
+                                                    //topic length + 1   1 byte
+                                                    fillBytes(data, topicNameLen, 1);
+                                                    //topic name
+                                                    fillBytes(data, topicName);
+                                                    //fillBytes(data, buffer, buffer.position(), topicNameLen - 1);
+                                                    if(!(Objects.isNull(topic))) {
+                                                        //topic id
+                                                        fillBytes(data, topic.getTopicId());
+                                                    }else {
+                                                        fillBytes(data, (byte)0, 16);
+                                                    }
+                                                    //is internal
+                                                    data.add((byte) 0);
+                                                    //partitions array length + 1
+                                                    if(Objects.isNull(topic)) {
+                                                        data.add((byte) 1);
+                                                    }else {
+                                                        data.add((byte) (topic.getPartitions().size() + 1));
+                                                        topic.getPartitions().forEach(data::addAll);
+                                                    }
+                                                    //topic authorized operations 0x0df8
+                                                    fillBytes(data, 0x0df8, 4);
+                                                    //tag buffer
+                                                    data.add((byte) 0);
+                                                    buffer.position(buffer.position() + 1);
+                                                }
+                                                //next cursor
+                                                fillBytes(data, 0xff, 1);
+                                                //tag buffer
+                                                data.add((byte) 0);
+                                            } break;
+                                            default: {
+                                                //error code
+                                                fillBytes(data, (byte) 0, 2);
+                                            }
+                                        }
+                                        ByteBuffer writeBuffer = ByteBuffer.allocate(data.size());
+                                        writeBuffer.position(0);
+                                        data.forEach(writeBuffer::put);
+                                        writeBuffer.putInt(0, data.size() - 4);
+
+                                        /*writeBuffer.position(0);
+                                        for(int i = 0; i < writeBuffer.capacity(); i++) {
+                                            System.out.printf("%02X ", writeBuffer.get());
+                                        }*/
+
+                                        writeBuffer.position(0);
+                                        while(writeBuffer.hasRemaining()) {
+                                            channel.write(writeBuffer);
+                                        }
+
+                                    }
+                                    //channel.close();
+                                }
+                            } break;
+                            case SelectionKey.OP_WRITE: {} break;
+                            default: {}
+                        }
+                        iterator.remove();
+                    }
+                }
+            }
+        }catch (Exception e) {
+            e.printStackTrace();
+            System.out.printf("Exception: %s\n", e.getMessage());
+        }
+    }
+
+    private static void fillBytes(List<Byte> data, byte value, int len) {
+        for(int i = 0; i < len; i++) {
+            data.add(value);
+        }
+    }
+
+    private static void fillBytes(List<Byte> data, ByteBuffer buffer, int initPosition, int len) {
+        buffer.position(initPosition);
+        for(int i = 0; i < len; i++) {
+            data.add(buffer.get());
+        }
+    }
+
+    private static void fillBytes(List<Byte> data, long value, int len) {
+        byte[] bytes = BigInteger.valueOf(value).toByteArray();
+        if(bytes.length >= len) {
+            for(int i = bytes.length - len; i < bytes.length; i++) {
+                data.add(bytes[i]);
+            }
+        }else {
+            for(int i = 0, c = len - bytes.length; i < c; i++) {
+                data.add((byte) 0);
+            }
+            for(byte val : bytes) {
+                data.add(val);
             }
         }
     }
 
-    private static void handleRequest(byte[] requestBytes, OutputStream out) throws IOException {
-        logger.info("Received {} bytes from client", requestBytes.length);
+    private static void fillBytes(List<Byte> data, byte[] bytes) {
+        for(byte val : bytes) {
+            data.add(val);
+        }
+    }
 
-        // Parse the request to extract correlation ID
-        ByteBuffer request = ByteBuffer.wrap(requestBytes);
-
-        logger.info("Parsing the request {}", request);
-
-        int messageSize = request.getInt();      // bytes 0-3: message size
-        short apiKey = request.getShort();       // bytes 4-5: API key
-        short apiVersion = request.getShort();   // bytes 6-7: API version
-        int correlationId = request.getInt();    // bytes 8-11: correlation ID
-
-        logger.info("Parsed request - messageSize: {}, apiKey: {}, apiVersion: {}, correlationId: {}",
-                messageSize, apiKey, apiVersion, correlationId);
-
-        // === BEHAVIOR: Route By apiKey ===
-        // 1. IF apiKey equals ApiVersions THEN build ApiVersions response.
-        // 2. ELSE IF apiKey equals DescribeTopicPartitions THEN parse request body and build that response.
-        // 3. ELSE return an appropriate error or ignore (future stages).
-        switch (apiKey) {
-            case 18 -> {
-                // ApiVersions request
-                buildApiVersionsResponse(correlationId, apiVersion, out);
+    private static Map<String, Topic> resolveTopicLog(String logPath, String logName) {
+        Map<String, Topic> topicMap = new HashMap<>();
+        Path path = FileSystems.getDefault().getPath(logPath, logName);
+        File file = path.toFile();
+        if(!(file.isFile())) return topicMap;
+        FileChannel fileChannel = null;
+        try {
+            fileChannel = FileChannel.open(path, StandardOpenOption.READ);
+            MappedByteBuffer buffer = fileChannel.map(FileChannel.MapMode.READ_ONLY, 0, file.length());
+            byte[] data = new byte[(int) file.length()];
+            buffer.position(0);
+            buffer.get(data);
+            int p = 0;
+            while(p < buffer.capacity()) {
+                p += 8;
+                buffer.position(p);
+                int batchLength = buffer.getInt() + 4;
+                buffer.position(p + 49);
+                int recordCounts = buffer.getInt();
+                for(int i = 0; i < recordCounts; i++) {
+                    int recordLen = resolveVarInt(buffer);
+                    int p1 = buffer.position();
+                    buffer.position(buffer.position() + 3);
+                    int keyLength = resolveVarInt(buffer);
+                    buffer.position(buffer.position() + keyLength);
+                    int valueLength = resolveVarInt(buffer);
+                    buffer.position(buffer.position() + 1);
+                    int type = buffer.get();
+                    switch (type) {
+                        case 12: {/*feature level record*/} break;
+                        case 2: {
+                            // topic record
+                            buffer.position(buffer.position() + 1);
+                            int nameLength = new BigInteger(new byte[]{buffer.get()}).intValue() - 1;
+                            byte[] nameBytes = new byte[nameLength];
+                            buffer.get(nameBytes, 0, nameLength);
+                            byte[] topicId = new byte[16];
+                            buffer.get(topicId, 0, 16);
+                            Topic topic = new Topic(topicId, nameBytes);
+                            topicMap.putIfAbsent(new String(nameBytes), topic);
+                        } break;
+                        case 3: {
+                            //partition record
+                            buffer.position(buffer.position() + 1);
+                            byte[] partitionId = new byte[4];
+                            buffer.get(partitionId, 0, 4);
+                            byte[] topicId = new byte[16];
+                            buffer.get(topicId, 0, 16);
+                            Topic myTopic = null;
+                            for(Topic topic : topicMap.values()) {
+                                boolean isEqual = true;
+                                for(int j = 0; j < 16; j++) {
+                                    if(topic.getTopicId()[j] != topicId[j]) {
+                                        isEqual = false;
+                                        break;
+                                    }
+                                }
+                                if(isEqual) {
+                                    myTopic = topic;
+                                    break;
+                                }
+                            }
+                            if(!(Objects.isNull(myTopic))) {
+                                List<Byte> partition = new ArrayList<>();
+                                myTopic.getPartitions().add(partition);
+                                //error code 0
+                                fillBytes(partition, (byte) 0, 2);
+                                //partition id
+                                fillBytes(partition, partitionId);
+                                //replicate + syncReplicate
+                                byte[] replicateData = new byte[10];
+                                buffer.get(replicateData, 0, replicateData.length);
+                                //skip 2 bytes
+                                buffer.position(buffer.position() + 2);
+                                //leader id + leader epoch
+                                fillBytes(partition, buffer, buffer.position(), 8);
+                                fillBytes(partition, replicateData);
+                                //eligible leader replicate + last known elr + offline replicate
+                                fillBytes(partition, (byte) 1, 3);
+                                //tag buffer
+                                partition.add((byte) 0);
+                            }
+                        } break;
+                        default: {}
+                    }
+                    buffer.position(p1 + recordLen);
+                }
+                p += batchLength;
             }
-            case 75 -> {
-                // DescribeTopicPartitions request
-                String topicName = parseDescribeTopicPartitionsRequest(request);
-                buildDescribeTopicPartitionsResponse(correlationId, topicName, out);
+        } catch(Exception e) {
+            System.err.println(e.getMessage());
+            e.printStackTrace();
+        } finally {
+            if(!(Objects.isNull(fileChannel))) {
+                try {
+                    fileChannel.close();
+                } catch(Exception e) {
+                    System.err.println(e.getMessage());
+                }
             }
-            default ->
-                logger.warn("Unsupported apiKey: {}", apiKey);
         }
+        return topicMap;
     }
 
-    private static void buildApiVersionsResponse(int correlationId, short apiVersion, OutputStream out) throws IOException {
-        int api_key = 18;
-        short min_version = 0;
-        short max_version = 4;
+    private static int resolveVarInt(ByteBuffer buffer) {
+        int p = 0;
+        byte[] bytes = new byte[]{0, 0, 0, 0};
+        String[] hex = new String[]{"00", "00", "00", "00"};
 
-        // Determine error_code based on requested API version
-        short error_code;
-        if (apiVersion < min_version || apiVersion > max_version) {
-            error_code = 35; // UNSUPPORTED_VERSION
-        } else {
-            error_code = 0;  // Success
-        }
-
-        // Construct ApiVersions response
-        int body_size = 2 + 1 + (2 + 2 + 2 + 1) + (2 + 2 + 2 + 1) + 4 + 1;
-        // body_size breakdown:
-        int message_size = 4 + body_size; // correlation_id (4 bytes) + body_size
-        ByteBuffer responseBuffer = ByteBuffer.allocate(4 + message_size);
-        responseBuffer.putInt(message_size);  // message_size
-        responseBuffer.putInt(correlationId); // correlation_id
-        responseBuffer.putShort(error_code);   // error_code
-        // 1. WRITE compact array length (2 entries => length+1 = 3).
-        responseBuffer.put((byte) 3);         // api_keys length (compact array length = 2 + 1)
-        responseBuffer.putShort((short) api_key); // api_key
-        responseBuffer.putShort(min_version);      // min_version
-        responseBuffer.putShort(max_version);      // max_version
-        responseBuffer.put((byte) 0);         // tagged_fields (empty)
-        // 2. WRITE DescribeTopicPartitions entry (api_key=75, min=0, max=0, tagged_fields empty).
-        responseBuffer.putShort((short) 75);  // api_key (DescribeTopicPartitions)
-        responseBuffer.putShort((short) 0);   // min_version
-        responseBuffer.putShort((short) 0);   // max_version
-        responseBuffer.put((byte) 0);         // tagged_fields (empty)
-        responseBuffer.putInt(0);             // throttle_time_ms
-        responseBuffer.put((byte) 0);         // tagged_fields (empty)
-
-        logger.info("Sending ApiVersions response with correlationId: {}", correlationId);
-        out.write(responseBuffer.array());
-        out.flush();
-    }
-
-    private static String parseDescribeTopicPartitionsRequest(ByteBuffer requestBuffer) {
-
-        logger.info("Starting to parse DescribeTopicPartitions request. Buffer position: {}, remaining: {}",
-            requestBuffer.position(), requestBuffer.remaining());
-
-        // Skip client_id (nullable string - INT16 length prefix)
-        short clientIdLength = requestBuffer.getShort();
-        logger.info("Client ID length (INT16): {}", clientIdLength);
-
-        if (clientIdLength > 0) {
-            requestBuffer.position(requestBuffer.position() + clientIdLength);
-            logger.info("Skipped {} bytes for client_id. New position: {}", clientIdLength, requestBuffer.position());
-        }
-
-        // Skip header TAG_BUFFER (expect empty)
-        byte headerTagBuffer = requestBuffer.get();
-        logger.info("Header TAG_BUFFER: 0x{}, position: {}",
-            String.format("%02X", headerTagBuffer), requestBuffer.position());
-
-        // Now read topics array
-        byte topicsArrayLengthByte = requestBuffer.get();
-        int topicsArrayLength = Byte.toUnsignedInt(topicsArrayLengthByte);
-        logger.info("Topics array length byte: 0x{}, computed length: {}, position: {}",
-            String.format("%02X", topicsArrayLengthByte), topicsArrayLength, requestBuffer.position());
-
-        if (topicsArrayLength <= 1) {
-            logger.warn("Topics array length is <= 1, returning empty string");
-            return ""; // No topics
-        }
-
-        // Read topic_name
-        byte topicNameLengthByte = requestBuffer.get();
-        int topicNameLength = Byte.toUnsignedInt(topicNameLengthByte) - 1;
-        logger.info("Topic name length byte: 0x{}, computed length: {}, position: {}",
-            String.format("%02X", topicNameLengthByte), topicNameLength, requestBuffer.position());
-
-        byte[] topicNameBytes = new byte[topicNameLength];
-        requestBuffer.get(topicNameBytes);
-        String topicName = new String(topicNameBytes, java.nio.charset.StandardCharsets.UTF_8);
-        logger.info("Extracted topic name: '{}', position: {}", topicName, requestBuffer.position());
-
-        // Skip topic TAG_BUFFER (expect empty)
-        byte topicTagBuffer = requestBuffer.get();
-        logger.info("Topic TAG_BUFFER: 0x{}, position: {}",
-            String.format("%02X", topicTagBuffer), requestBuffer.position());
-
-        // Skip ResponsePartitionLimit (INT32, 4 bytes)
-        int responsePartitionLimit = requestBuffer.getInt();
-        logger.info("ResponsePartitionLimit: {}, position: {}", responsePartitionLimit, requestBuffer.position());
-
-        // Skip Cursor (nullable byte)
-        byte cursor = requestBuffer.get();
-        logger.info("Cursor: 0x{} ({}), position: {}",
-            String.format("%02X", cursor), cursor, requestBuffer.position());
-
-        // Skip request TAG_BUFFER (expect empty)
-        byte requestTagBuffer = requestBuffer.get();
-        logger.info("Request TAG_BUFFER: 0x{}, position: {}",
-            String.format("%02X", requestTagBuffer), requestBuffer.position());
-
-        logger.info("Finished parsing. Returning topic name: '{}'", topicName);
-        return topicName;
-
-    }
-
-    private static void buildDescribeTopicPartitionsResponse(int correlationId, String topicName, OutputStream out) throws IOException {
-
-        short error_code = 3; // UNKNOWN_TOPIC_OR_PARTITION
-        byte[] topicNameBytes = topicName.getBytes(java.nio.charset.StandardCharsets.UTF_8);
-        int topicNameByteLength = topicNameBytes.length;
-
-        // Header v1: correlation_id (4) + TAG_BUFFER (1) = 5 bytes
-        // Body: throttle_time_ms (4) + topics array (1 + topic_entry) + next_cursor (1) + TAG_BUFFER (1)
-        // Topic entry: error_code (2) + topic_name (1 + length) + topic_id (16) + is_internal (1) + partitions (1) + authorized_ops (4) + TAG_BUFFER (1)
-        int body_size = 4 + 1 + (2 + topicNameByteLength + 1 + 16 + 1 + 1 + 4 + 1) + 1 + 1;
-        int message_size = 4 + 1 + body_size; // correlation_id (4) + header TAG_BUFFER (1) + body_size
-
-        ByteBuffer responseBuffer = ByteBuffer.allocate(4 + message_size);
-        responseBuffer.putInt(message_size);  // message_size
-        responseBuffer.putInt(correlationId); // correlation_id
-        responseBuffer.put((byte) 0);         // header TAG_BUFFER (empty)
-        responseBuffer.putInt(0);             // throttle_time_ms
-        responseBuffer.put((byte) 2);         // topics length (compact array length = 1 + 1)
-
-        // Topic entry
-        responseBuffer.putShort(error_code);   // error_code
-        responseBuffer.put((byte) (topicNameByteLength + 1)); // topic_name length (compact string length = byte_length + 1)
-        responseBuffer.put(topicNameBytes); // topic_name
-        // topic_id = all zero UUID
-        for (int i = 0; i < 16; i++) {
-            responseBuffer.put((byte) 0);
-        }
-        responseBuffer.put((byte) 0);         // is_internal = false
-        responseBuffer.put((byte) 1);         // partitions length (compact array length = 0 + 1)
-        responseBuffer.putInt(0);             // topic_authorized_operations
-        responseBuffer.put((byte) 0);         // topic TAG_BUFFER empty
-
-        responseBuffer.put((byte) -1);        // next_cursor = -1 (null, NULLABLE_INT8 = 1 byte)
-        responseBuffer.put((byte) 0);         // response TAG_BUFFER empty
-
-        logger.info("Sending DescribeTopicPartitions response for topic: {} with correlationId: {}", topicName, correlationId);
-
-        out.write(responseBuffer.array());
-        out.flush();
-    }
-
-    private static boolean readFully(InputStream in, byte[] buffer, int offset, int length) throws IOException {
-        int totalRead = 0;
-        while (totalRead < length) {
-            int bytesRead = in.read(buffer, offset + totalRead, length - totalRead);
-            if (bytesRead == -1) {
-                return false; // EOF
+        while(p < bytes.length) {
+            buffer.get(bytes, p, 1);
+            if(p > 0) {
+                bytes[p] = (byte) (bytes[p] >> 1);
             }
-            totalRead += bytesRead;
+            hex[3 - p] = String.format("%02X", Byte.toUnsignedInt(new BigInteger(Arrays.copyOfRange(bytes, p, p + 1)).byteValue()));
+            int num = new BigInteger(String.join("", hex), 16).intValue();
+            if(num < Double.valueOf(Math.pow(2, (p + 1) * 8 - 1)).intValue() - 1) {
+                return num / 2;
+            }
+            p += 1;
         }
-        return true;
+        return -1;
     }
 }
