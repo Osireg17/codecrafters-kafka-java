@@ -70,7 +70,7 @@ public class FetchResponseBuilder {
         response.addBytes((byte) 0xff, 4);
 
         int recordBatchLength = recordBatchBytes.size();
-        response.addByte((byte) (recordBatchLength + 1));
+        response.addUnsignedVarInt(recordBatchLength + 1);
         response.addBytes(recordBatchBytes);
 
         response.addByte((byte) 0);

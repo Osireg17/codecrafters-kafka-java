@@ -61,4 +61,12 @@ public class ByteUtils {
         }
         return -1;
     }
+
+    public static void writeUnsignedVarInt(List<Byte> data, int value) {
+        while ((value & 0xFFFFFF80) != 0) {
+            data.add((byte) ((value & 0x7F) | 0x80));
+            value >>>= 7;
+        }
+        data.add((byte) value);
+    }
 }

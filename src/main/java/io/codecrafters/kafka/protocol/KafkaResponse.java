@@ -49,6 +49,10 @@ public class KafkaResponse {
         data.add(value);
     }
 
+    public void addUnsignedVarInt(int value) {
+        ByteUtils.writeUnsignedVarInt(data, value);
+    }
+
     public ByteBuffer toByteBuffer() {
         ByteBuffer buffer = ByteBuffer.allocate(data.size());
         buffer.position(0);
