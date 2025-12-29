@@ -6,6 +6,7 @@ import io.codecrafters.kafka.protocol.FetchResponseBuilder;
 import io.codecrafters.kafka.protocol.KafkaRequest;
 import io.codecrafters.kafka.protocol.KafkaResponse;
 import io.codecrafters.kafka.storage.TopicLogReader;
+import io.codecrafters.kafka.storage.PartitionLogReader;
 
 import java.nio.ByteBuffer;
 import java.util.Arrays;
@@ -15,9 +16,11 @@ import java.util.Map;
 public class FetchHandler implements RequestHandler {
 
     private final TopicLogReader topicLogReader;
+    private final PartitionLogReader partitionLogReader;
 
     public FetchHandler(String dataLogPath, String logFileName) {
-        this.topicLogReader = new TopicLogReader(dataLogPath, logFileName);
+        this.topicLogReader = new TopicLogReader(dataLogPath + "/__cluster_metadata-0", logFileName);
+        this.partitionLogReader = new PartitionLogReader(dataLogPath, logFileName);
     }
 
     @Override
@@ -56,7 +59,7 @@ public class FetchHandler implements RequestHandler {
             if (topic == null) {
                 handleUnknownTopic(builder, fetchTopic);
             } else {
-                handleEmptyTopic(builder, fetchTopic, topic);
+                handleTopicWithData(builder, fetchTopic, topic);
             }
         }
 
@@ -84,11 +87,23 @@ public class FetchHandler implements RequestHandler {
         builder.endTopic();
     }
 
-    private void handleEmptyTopic(FetchResponseBuilder builder, FetchRequestParser.FetchTopic fetchTopic, Topic topic) {
+    private void handleTopicWithData(FetchResponseBuilder builder, FetchRequestParser.FetchTopic fetchTopic, Topic topic) {
         builder.addTopic(fetchTopic.getTopicId(), fetchTopic.getPartitions().size());
 
         for (FetchRequestParser.FetchPartition partition : fetchTopic.getPartitions()) {
-            builder.addEmptyPartition(partition.getPartitionIndex(), 0);
+            String topicName = new String(topic.getTopicName());
+            long fetchOffset = partition.getFetchOffset();
+
+            System.out.println("Reading RecordBatch for topic: " + topicName + ", partition: " + partition.getPartitionIndex() + ", offset: " + fetchOffset);
+            List<Byte> recordBatchBytes = partitionLogReader.readRecordBatch(topicName, partition.getPartitionIndex(), fetchOffset);
+            System.out.println("RecordBatch size: " + recordBatchBytes.size());
+
+            if (recordBatchBytes.isEmpty()) {
+                builder.addEmptyPartition(partition.getPartitionIndex(), 0);
+            } else {
+                long highWatermark = fetchOffset + 1;
+                builder.addPartitionWithRecords(partition.getPartitionIndex(), highWatermark, recordBatchBytes);
+            }
         }
 
         builder.endTopic();
