@@ -1,9 +1,24 @@
 package io.codecrafters.kafka.handler;
 
+import io.codecrafters.kafka.common.Topic;
+import io.codecrafters.kafka.protocol.FetchRequestParser;
+import io.codecrafters.kafka.protocol.FetchResponseBuilder;
 import io.codecrafters.kafka.protocol.KafkaRequest;
 import io.codecrafters.kafka.protocol.KafkaResponse;
+import io.codecrafters.kafka.storage.TopicLogReader;
+
+import java.nio.ByteBuffer;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
 
 public class FetchHandler implements RequestHandler {
+
+    private final TopicLogReader topicLogReader;
+
+    public FetchHandler(String dataLogPath, String logFileName) {
+        this.topicLogReader = new TopicLogReader(dataLogPath, logFileName);
+    }
 
     @Override
     public short getApiKey() {
@@ -12,24 +27,79 @@ public class FetchHandler implements RequestHandler {
 
     @Override
     public KafkaResponse handle(KafkaRequest request) {
-        KafkaResponse response = new KafkaResponse(request.getCorrelationId(), true);
+        ByteBuffer buffer = request.getRawBuffer();
+        List<FetchRequestParser.FetchTopic> requestedTopics;
 
-        // throttle_time_ms (INT32) - 4 bytes
+        try {
+            requestedTopics = FetchRequestParser.parseTopics(buffer);
+            System.out.println("Parsed topics count: " + requestedTopics.size());
+        } catch (Exception e) {
+            System.err.println("Error parsing fetch request: " + e.getMessage());
+            e.printStackTrace();
+            return handleEmptyRequest(request.getCorrelationId());
+        }
+
+        if (requestedTopics.isEmpty()) {
+            System.out.println("Returning empty request response");
+            return handleEmptyRequest(request.getCorrelationId());
+        }
+
+        Map<String, Topic> topicMap = topicLogReader.readTopics();
+
+        FetchResponseBuilder builder = new FetchResponseBuilder(request.getCorrelationId());
+        builder.addHeader(0, 0, 0);
+        builder.startTopicsArray(requestedTopics.size());
+
+        for (FetchRequestParser.FetchTopic fetchTopic : requestedTopics) {
+            Topic topic = findTopicById(topicMap, fetchTopic.getTopicId());
+
+            if (topic == null) {
+                handleUnknownTopic(builder, fetchTopic);
+            } else {
+                handleEmptyTopic(builder, fetchTopic, topic);
+            }
+        }
+
+        builder.endResponse();
+        return builder.build();
+    }
+
+    private KafkaResponse handleEmptyRequest(int correlationId) {
+        KafkaResponse response = new KafkaResponse(correlationId, true);
         response.addBytes((byte) 0, 4);
-
-        // error_code (INT16) - 2 bytes
         response.addBytes((byte) 0, 2);
-
-        // session_id (INT32) - 4 bytes
         response.addBytes((byte) 0, 4);
-
-        // responses array length (COMPACT_ARRAY)
-        // 0 elements = length 1 (0 + 1 for compact encoding)
         response.addByte((byte) 1);
-
-        // _tagged_fields (empty)
         response.addByte((byte) 0);
-
         return response;
+    }
+
+    private void handleUnknownTopic(FetchResponseBuilder builder, FetchRequestParser.FetchTopic fetchTopic) {
+        builder.addTopic(fetchTopic.getTopicId(), fetchTopic.getPartitions().size());
+
+        for (FetchRequestParser.FetchPartition partition : fetchTopic.getPartitions()) {
+            builder.addPartitionWithError(partition.getPartitionIndex(), 100);
+        }
+
+        builder.endTopic();
+    }
+
+    private void handleEmptyTopic(FetchResponseBuilder builder, FetchRequestParser.FetchTopic fetchTopic, Topic topic) {
+        builder.addTopic(fetchTopic.getTopicId(), fetchTopic.getPartitions().size());
+
+        for (FetchRequestParser.FetchPartition partition : fetchTopic.getPartitions()) {
+            builder.addEmptyPartition(partition.getPartitionIndex(), 0);
+        }
+
+        builder.endTopic();
+    }
+
+    private Topic findTopicById(Map<String, Topic> topicMap, byte[] topicId) {
+        for (Topic topic : topicMap.values()) {
+            if (Arrays.equals(topic.getTopicId(), topicId)) {
+                return topic;
+            }
+        }
+        return null;
     }
 }

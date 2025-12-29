@@ -34,7 +34,10 @@ public class KafkaServer {
                 "/tmp/kraft-combined-logs/__cluster_metadata-0",
                 "00000000000000000000.log"
         ));
-        handlerRegistry.register(new FetchHandler());
+        handlerRegistry.register(new FetchHandler(
+                "/tmp/kraft-combined-logs/__cluster_metadata-0",
+                "00000000000000000000.log"
+        ));
     }
 
     public void start() {
