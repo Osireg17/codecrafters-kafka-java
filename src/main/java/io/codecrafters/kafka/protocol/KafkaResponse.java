@@ -7,16 +7,26 @@ import java.util.List;
 public class KafkaResponse {
     private final List<Byte> data;
     private final int correlationId;
+    private final boolean useHeaderV1;
 
     public KafkaResponse(int correlationId) {
+        this(correlationId, false);
+    }
+
+    public KafkaResponse(int correlationId, boolean useHeaderV1) {
         this.data = new ArrayList<>();
         this.correlationId = correlationId;
+        this.useHeaderV1 = useHeaderV1;
         initializeHeader();
     }
 
     private void initializeHeader() {
         ByteUtils.fillBytes(data, (byte) 0, 4);
         ByteUtils.fillBytes(data, correlationId, 4);
+        // Response header v1 includes tagged_fields (empty = 0)
+        if (useHeaderV1) {
+            data.add((byte) 0);
+        }
     }
 
     public void addBytes(byte value, int count) {
