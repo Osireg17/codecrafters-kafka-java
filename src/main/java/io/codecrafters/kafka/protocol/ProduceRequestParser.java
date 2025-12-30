@@ -2,14 +2,16 @@ package io.codecrafters.kafka.protocol;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.util.Collections;
+import java.util.List;
 
 public class ProduceRequestParser {
 
-    public static class ProduceData {
+    public static class ProduceTopic {
         private final String topicName;
         private final int partitionIndex;
 
-        public ProduceData(String topicName, int partitionIndex) {
+        public ProduceTopic(String topicName, int partitionIndex) {
             this.topicName = topicName;
             this.partitionIndex = partitionIndex;
         }
@@ -29,7 +31,7 @@ public class ProduceRequestParser {
      * @param buffer The request buffer positioned after the request header
      * @return ProduceData containing the first topic name and partition index
      */
-    public static ProduceData parse(ByteBuffer buffer) {
+    public static ProduceTopic parseTopic(ByteBuffer buffer) {
         // Skip client_id (nullable string) in request header v2
         buffer.position(12);
         short clientIdLength = buffer.getShort();
@@ -77,7 +79,7 @@ public class ProduceRequestParser {
         int partitionIndex = buffer.getInt();
 
         // We don't need to parse further for the error response
-        return new ProduceData(topicName, partitionIndex);
+        return new ProduceTopic(topicName, partitionIndex);
     }
 
     private static int readUnsignedVarInt(ByteBuffer buffer) {

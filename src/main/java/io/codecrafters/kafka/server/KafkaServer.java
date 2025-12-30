@@ -31,7 +31,10 @@ public class KafkaServer {
 
     private void registerHandlers() {
         handlerRegistry.register(new ApiVersionsHandler());
-        handlerRegistry.register(new ProduceHandler());
+        handlerRegistry.register(new ProduceHandler(
+                "/tmp/kraft-combined-logs",
+                "00000000000000000000.log"
+        ));
         handlerRegistry.register(new DescribeTopicPartitionsHandler(
                 "/tmp/kraft-combined-logs/__cluster_metadata-0",
                 "00000000000000000000.log"

@@ -16,12 +16,13 @@ public class ProduceResponseBuilder {
     }
 
     /**
-     * Build a Produce response v11 with UNKNOWN_TOPIC_OR_PARTITION error (error_code 3).
+     * Build a Produce response v11 with a specific error code.
      *
      * @param topicName The topic name from the request
      * @param partitionIndex The partition index from the request
+     * @param errorCode The error code (0 for success, 3 for UNKNOWN_TOPIC_OR_PARTITION)
      */
-    public void buildErrorResponse(String topicName, int partitionIndex) {
+    public void buildResponse(String topicName, int partitionIndex, int errorCode) {
         // responses array (compact array) with 1 topic
         response.addUnsignedVarInt(1 + 1); // array length + 1 for compact encoding
 
@@ -36,17 +37,30 @@ public class ProduceResponseBuilder {
         // partition index (int32)
         response.addBytes(partitionIndex, 4);
 
-        // error_code (int16) = 3 (UNKNOWN_TOPIC_OR_PARTITION)
-        response.addBytes(3, 2);
+        // error_code (int16)
+        response.addBytes(errorCode, 2);
 
-        // base_offset (int64) = -1
-        response.addBytes((byte) 0xff, 8);
+        if (errorCode == 0) {
+            // Success case
+            // base_offset (int64) = 0
+            response.addBytes(0, 8);
 
-        // log_append_time_ms (int64) = -1
-        response.addBytes((byte) 0xff, 8);
+            // log_append_time_ms (int64) = -1
+            response.addBytes((byte) 0xff, 8);
 
-        // log_start_offset (int64) = -1
-        response.addBytes((byte) 0xff, 8);
+            // log_start_offset (int64) = 0
+            response.addBytes(0, 8);
+        } else {
+            // Error case
+            // base_offset (int64) = -1
+            response.addBytes((byte) 0xff, 8);
+
+            // log_append_time_ms (int64) = -1
+            response.addBytes((byte) 0xff, 8);
+
+            // log_start_offset (int64) = -1
+            response.addBytes((byte) 0xff, 8);
+        }
 
         // record_errors (compact array) = empty
         response.addUnsignedVarInt(1); // empty array (length 0 -> 1)
@@ -65,6 +79,26 @@ public class ProduceResponseBuilder {
 
         // response body tagged_fields (varint) = empty
         response.addUnsignedVarInt(0);
+    }
+
+    /**
+     * Build a Produce response v11 with UNKNOWN_TOPIC_OR_PARTITION error (error_code 3).
+     *
+     * @param topicName The topic name from the request
+     * @param partitionIndex The partition index from the request
+     */
+    public void buildErrorResponse(String topicName, int partitionIndex) {
+        buildResponse(topicName, partitionIndex, 3);
+    }
+
+    /**
+     * Build a Produce response v11 with success (error_code 0).
+     *
+     * @param topicName The topic name from the request
+     * @param partitionIndex The partition index from the request
+     */
+    public void buildSuccessResponse(String topicName, int partitionIndex) {
+        buildResponse(topicName, partitionIndex, 0);
     }
 
     /**
