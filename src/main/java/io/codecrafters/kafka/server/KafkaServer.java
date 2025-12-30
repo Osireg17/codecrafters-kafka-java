@@ -4,6 +4,7 @@ import io.codecrafters.kafka.handler.ApiVersionsHandler;
 import io.codecrafters.kafka.handler.DescribeTopicPartitionsHandler;
 import io.codecrafters.kafka.handler.FetchHandler;
 import io.codecrafters.kafka.handler.HandlerRegistry;
+import io.codecrafters.kafka.handler.ProduceHandler;
 import io.codecrafters.kafka.handler.RequestHandler;
 import io.codecrafters.kafka.protocol.KafkaRequest;
 import io.codecrafters.kafka.protocol.KafkaResponse;
@@ -30,6 +31,7 @@ public class KafkaServer {
 
     private void registerHandlers() {
         handlerRegistry.register(new ApiVersionsHandler());
+        handlerRegistry.register(new ProduceHandler());
         handlerRegistry.register(new DescribeTopicPartitionsHandler(
                 "/tmp/kraft-combined-logs/__cluster_metadata-0",
                 "00000000000000000000.log"
