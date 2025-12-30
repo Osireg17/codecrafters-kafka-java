@@ -6,6 +6,7 @@ import io.codecrafters.kafka.protocol.KafkaResponse;
 import io.codecrafters.kafka.protocol.ProduceRequestParser;
 import io.codecrafters.kafka.protocol.ProduceResponseBuilder;
 import io.codecrafters.kafka.storage.PartitionLogReader;
+import io.codecrafters.kafka.storage.PartitionLogWriter;
 import io.codecrafters.kafka.storage.TopicLogReader;
 
 import java.nio.ByteBuffer;
@@ -14,19 +15,23 @@ import java.util.Map;
 
 /**
  * Handler for Produce requests (API key 0, version 11).
- * Validates topic and partition existence against __cluster_metadata and returns appropriate response.
+ * Validates topic and partition existence against __cluster_metadata and persists record batches to disk.
  */
 public class ProduceHandler implements RequestHandler {
 
     private final TopicLogReader topicLogReader;
     private final PartitionLogReader partitionLogReader;
+    private final PartitionLogWriter partitionLogWriter;
+    private final String dataLogPath;
 
     public ProduceHandler(String dataLogPath, String logFileName) {
+        this.dataLogPath = dataLogPath;
         this.topicLogReader = new TopicLogReader(dataLogPath + "/__cluster_metadata-0", logFileName);
         this.partitionLogReader = new PartitionLogReader(
                 dataLogPath,
                 logFileName
         );
+        this.partitionLogWriter = new PartitionLogWriter(dataLogPath);
     }
 
     @Override
@@ -34,8 +39,8 @@ public class ProduceHandler implements RequestHandler {
         ByteBuffer buffer = request.getRawBuffer();
 
         try {
-            // Parse Produce request to extract topic name and partition index
-            ProduceRequestParser.ProduceTopic produceTopic = ProduceRequestParser.parseTopic(buffer);
+            // Step 1: Parse Produce request to extract topic name, partition index, and record batch bytes
+            ProduceRequestParser.ProduceTopic produceTopic = ProduceRequestParser.parseTopicWithRecords(buffer);
 
             if (produceTopic == null) {
                 System.err.println("Failed to parse Produce request - no topics or partitions found");
@@ -44,27 +49,47 @@ public class ProduceHandler implements RequestHandler {
 
             String topicName = produceTopic.getTopicName();
             int partitionIndex = produceTopic.getPartitionIndex();
+            byte[] recordBatchBytes = produceTopic.getRecordBatchBytes();
 
-            System.out.println("Produce request for topic: " + topicName + ", partition: " + partitionIndex);
+            System.out.println("Produce request for topic: " + topicName +
+                             ", partition: " + partitionIndex +
+                             ", record batch size: " + (recordBatchBytes != null ? recordBatchBytes.length : 0) + " bytes");
 
-            // Validate topic and partition
+            // Step 2: Validate topic and partition
             int errorCode = validateTopicAndPartition(topicName, partitionIndex);
 
-            // Build response based on validation result
-            ProduceResponseBuilder builder = new ProduceResponseBuilder(request.getCorrelationId());
-
-            if (errorCode == 0) {
-                System.out.println("Topic and partition validated successfully");
-                builder.buildSuccessResponse(topicName, partitionIndex);
-            } else {
+            // Step 3: If invalid, build error response and return
+            if (errorCode != 0) {
                 System.out.println("Topic or partition not found, returning error code: " + errorCode);
+                ProduceResponseBuilder builder = new ProduceResponseBuilder(request.getCorrelationId());
                 builder.buildErrorResponse(topicName, partitionIndex);
+                return builder.build();
             }
 
+            // Step 4: Append record batch bytes to log file
+            if (recordBatchBytes != null && recordBatchBytes.length > 0) {
+                try {
+                    partitionLogWriter.appendRecordBatch(topicName, partitionIndex, recordBatchBytes);
+                    System.out.println("Record batch successfully persisted to disk");
+                } catch (Exception e) {
+                    System.err.println("Error writing record batch to disk: " + e.getMessage());
+                    e.printStackTrace();
+                    // Continue and return success anyway (data may be partially written)
+                }
+            } else {
+                System.out.println("No record batch bytes to persist (empty produce request)");
+            }
+
+            // Step 5: Build success response
+            System.out.println("Topic and partition validated successfully, returning success response");
+            ProduceResponseBuilder builder = new ProduceResponseBuilder(request.getCorrelationId());
+            builder.buildSuccessResponse(topicName, partitionIndex);
+
+            // Step 6: Return response
             return builder.build();
 
         } catch (Exception e) {
-            System.err.println("Error parsing Produce request: " + e.getMessage());
+            System.err.println("Error handling Produce request: " + e.getMessage());
             e.printStackTrace();
             return handleEmptyRequest(request.getCorrelationId());
         }
